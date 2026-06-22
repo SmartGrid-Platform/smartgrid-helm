@@ -1,0 +1,144 @@
+environment: default
+nodeEnv: "production"
+awsRegion: ""
+
+# imageTag is updated automatically by CI (main.yml update-helm-values job)
+imageTag: latest
+
+# ECR registry URL — set at deploy time from: terraform output -raw ecr_registry_url
+# Format: <account-id>.dkr.ecr.<region>.amazonaws.com
+ecrRegistryUrl: ""
+
+database:
+  # Populated at runtime from AWS Secrets Manager.
+  # In direct Helm mode (secrets.create=true / configmap.create=true),
+  # pass these via --set at deploy time. Never commit real values here.
+  host: ""
+  name: "smartgrid"
+  user: "smartgrid_user"
+  port: 3306
+  password: ""
+
+# JWT secret — only needed when secrets.create=true. Never commit here.
+jwtSecret: ""
+
+# Admin identity — non-sensitive defaults; override via --set at deploy time
+adminName: ""
+adminEmail: ""
+adminPassword: ""
+
+# secrets.create=true  → Helm creates the K8s Secret from values (legacy pipeline)
+# secrets.create=false → bootstrap pre-creates from Secrets Manager; ArgoCD sets this
+secrets:
+  create: true
+
+# configmap.create=true  → Helm creates the ConfigMap from values (legacy pipeline)
+# configmap.create=false → bootstrap pre-creates from Secrets Manager; ArgoCD sets this
+configmap:
+  create: true
+
+ingress:
+  enabled: true
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    alb.ingress.kubernetes.io/load-balancer-name: smartgrid-eks-alb
+  hosts:
+    - host: ""
+      paths:
+        - path: /api/auth
+          pathType: Prefix
+          serviceName: auth-service
+          servicePort: 3001
+        - path: /api/consumers
+          pathType: Prefix
+          serviceName: consumer-service
+          servicePort: 3002
+        - path: /api/meters
+          pathType: Prefix
+          serviceName: meter-service
+          servicePort: 3003
+        - path: /api/bills
+          pathType: Prefix
+          serviceName: billing-service
+          servicePort: 3004
+        - path: /api/tariffs
+          pathType: Prefix
+          serviceName: billing-service
+          servicePort: 3004
+        - path: /api/recharges
+          pathType: Prefix
+          serviceName: billing-service
+          servicePort: 3004
+        - path: /api/alerts
+          pathType: Prefix
+          serviceName: alert-service
+          servicePort: 3005
+        - path: /api/inspections
+          pathType: Prefix
+          serviceName: alert-service
+          servicePort: 3005
+        - path: /api/assistant
+          pathType: Prefix
+          serviceName: ai-assistant-service
+          servicePort: 4004
+
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: ""
+
+services:
+  auth-service:
+    port: 3001
+    replicaCount: 2
+    image: auth-service
+    env: {}
+
+  consumer-service:
+    port: 3002
+    replicaCount: 2
+    image: consumer-service
+    env: {}
+
+  meter-service:
+    port: 3003
+    replicaCount: 2
+    image: meter-service
+    env: {}
+    hpa:
+      minReplicas: 2
+      maxReplicas: 6
+      cpuThreshold: 70
+      memoryThreshold: 80
+
+  billing-service:
+    port: 3004
+    replicaCount: 2
+    image: billing-service
+    env: {}
+    hpa:
+      minReplicas: 2
+      maxReplicas: 6
+      cpuThreshold: 70
+      memoryThreshold: 80
+
+  alert-service:
+    port: 3005
+    replicaCount: 2
+    image: alert-service
+    env: {}
+
+  ai-assistant-service:
+    port: 4004
+    replicaCount: 2
+    image: ai-assistant-service
+    env:
+      BEDROCK_REGION: ""
+      BEDROCK_MODEL_PRIMARY: ""
+      BEDROCK_MODEL_FALLBACK: ""
+      CONSUMER_SERVICE_URL: ""
+      BILLING_SERVICE_URL: ""
+      METER_SERVICE_URL: ""

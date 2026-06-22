@@ -1,0 +1,21 @@
+{{- if .Values.configmap.create }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: smartgrid-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: smartgrid
+    environment: {{ .Values.environment }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation
+data:
+  NODE_ENV:   {{ .Values.nodeEnv | quote }}
+  DB_HOST:    {{ .Values.database.host | quote }}
+  DB_NAME:    {{ .Values.database.name | quote }}
+  DB_USER:    {{ .Values.database.user | quote }}
+  DB_PORT:    {{ .Values.database.port | toString | quote }}
+  AWS_REGION: {{ .Values.awsRegion | quote }}
+{{- end }}

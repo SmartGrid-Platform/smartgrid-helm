@@ -1,0 +1,46 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smartgrid-db-migrate
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: smartgrid-db-migrate
+    environment: {{ .Values.environment }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: smartgrid-db-migrate
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: db-migrate
+          image: "{{ .Values.ecrRegistryUrl }}/smartgrid-{{ .Values.environment }}-auth-service:{{ .Values.imageTag }}"
+          workingDir: /app/shared/database
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              npm run migrate && npm run bootstrap
+          env:
+            - name: SKIP_SECRETS_MANAGER
+              value: "true"
+            - name: ADMIN_NAME
+              value: {{ .Values.adminName | quote }}
+            - name: ADMIN_EMAIL
+              value: {{ .Values.adminEmail | quote }}
+            - name: ADMIN_PASSWORD
+              value: {{ .Values.adminPassword | quote }}
+          envFrom:
+            - configMapRef:
+                name: smartgrid-config
+            - secretRef:
+                name: smartgrid-secrets
