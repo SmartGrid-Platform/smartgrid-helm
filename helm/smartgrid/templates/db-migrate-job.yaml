@@ -18,6 +18,7 @@ spec:
         app: smartgrid-db-migrate
     spec:
       restartPolicy: OnFailure
+      serviceAccountName: smartgrid-sa
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -31,8 +32,6 @@ spec:
             - |
               npm run migrate && npm run bootstrap
           env:
-            - name: SKIP_SECRETS_MANAGER
-              value: "true"
             - name: ADMIN_NAME
               value: {{ .Values.adminName | quote }}
             - name: ADMIN_EMAIL
@@ -42,5 +41,3 @@ spec:
           envFrom:
             - configMapRef:
                 name: smartgrid-config
-            - secretRef:
-                name: smartgrid-secrets
