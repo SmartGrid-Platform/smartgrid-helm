@@ -12,10 +12,11 @@ metadata:
     "helm.sh/hook-weight": "-10"
     "helm.sh/hook-delete-policy": before-hook-creation
 data:
-  NODE_ENV:   {{ .Values.nodeEnv | quote }}
-  DB_HOST:    {{ .Values.database.host | quote }}
-  DB_NAME:    {{ .Values.database.name | quote }}
-  DB_USER:    {{ .Values.database.user | quote }}
-  DB_PORT:    {{ .Values.database.port | toString | quote }}
-  AWS_REGION: {{ .Values.awsRegion | quote }}
+  NODE_ENV:        {{ .Values.nodeEnv | quote }}
+  DB_HOST:         {{ .Values.database.host | quote }}
+  DB_NAME:         {{ .Values.database.name | quote }}
+  DB_USER:         {{ .Values.database.user | quote }}
+  DB_PORT:         {{ .Values.database.port | default 3306 | toString | quote }}
+  AWS_REGION:      {{ .Values.awsRegion | quote }}
+  AWS_SECRET_NAME: {{ .Values.awsSecretName | quote }}
 {{- end }}

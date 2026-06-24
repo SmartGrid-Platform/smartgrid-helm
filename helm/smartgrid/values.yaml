@@ -1,6 +1,7 @@
 environment: default
 nodeEnv: "production"
 awsRegion: ""
+awsSecretName: "smartgrid-default/config"
 
 # imageTag is updated automatically by CI (main.yml update-helm-values job)
 imageTag: "1af7eb3"
