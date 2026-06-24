@@ -4,7 +4,7 @@ awsRegion: ""
 awsSecretName: "smartgrid-default/config"
 
 # imageTag is updated automatically by CI (main.yml update-helm-values job)
-imageTag: "bffd139"
+imageTag: "c3576f2"
 
 # ECR registry URL — set at deploy time from: terraform output -raw ecr_registry_url
 # Format: <account-id>.dkr.ecr.<region>.amazonaws.com
