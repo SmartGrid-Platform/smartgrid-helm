@@ -1,0 +1,50 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: smartgrid-production
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/SmartGrid-Platform/smartgrid-helm.git
+    targetRevision: dev
+    path: helm/smartgrid
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-prod.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: production
+
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: smartgrid-secrets
+      namespace: production
+      jsonPointers:
+        - /data
+    - group: ""
+      kind: ConfigMap
+      name: smartgrid-config
+      namespace: production
+      jsonPointers:
+        - /data

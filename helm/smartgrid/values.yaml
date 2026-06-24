@@ -1,6 +1,6 @@
 environment: default
 nodeEnv: "production"
-awsRegion: ""
+awsRegion: "ap-south-1"
 awsSecretName: "smartgrid-default/config"
 
 # imageTag is updated automatically by CI (main.yml update-helm-values job)
@@ -8,7 +8,7 @@ imageTag: "3b32440"
 
 # ECR registry URL — set at deploy time from: terraform output -raw ecr_registry_url
 # Format: <account-id>.dkr.ecr.<region>.amazonaws.com
-ecrRegistryUrl: ""
+ecrRegistryUrl: "846511227686.dkr.ecr.ap-south-1.amazonaws.com"
 
 database:
   # Populated at runtime from AWS Secrets Manager.
@@ -92,7 +92,7 @@ ingress:
 serviceAccount:
   create: true
   annotations:
-    eks.amazonaws.com/role-arn: ""
+    eks.amazonaws.com/role-arn: "arn:aws:iam::846511227686:role/smartgrid-default-eks-pod-role"
 
 services:
   auth-service:
@@ -140,9 +140,9 @@ services:
     replicaCount: 2
     image: ai-assistant-service
     env:
-      BEDROCK_REGION: ""
-      BEDROCK_MODEL_PRIMARY: ""
-      BEDROCK_MODEL_FALLBACK: ""
-      CONSUMER_SERVICE_URL: ""
-      BILLING_SERVICE_URL: ""
-      METER_SERVICE_URL: ""
+      BEDROCK_REGION: "us-east-1"
+      BEDROCK_MODEL_PRIMARY: "us.amazon.nova-pro-v1:0"
+      BEDROCK_MODEL_FALLBACK: "us.amazon.nova-lite-v1:0"
+      CONSUMER_SERVICE_URL: "http://consumer-service:3002"
+      BILLING_SERVICE_URL: "http://billing-service:3004"
+      METER_SERVICE_URL: "http://meter-service:3003"

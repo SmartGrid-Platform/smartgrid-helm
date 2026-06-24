@@ -1,6 +1,6 @@
 # Production overrides — merged on top of values.yaml by ArgoCD application-prod.yaml
-environment: production
-nodeEnv: "production"
+# NOTE: environment intentionally kept as "default" (from values.yaml) because ECR repos
+# are named smartgrid-default-* — overriding to "production" would break image pulls.
 
 secrets:
   create: false   # bootstrap pre-creates secrets in the production namespace
