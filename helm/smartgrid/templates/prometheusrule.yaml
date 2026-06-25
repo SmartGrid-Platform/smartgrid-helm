@@ -6,7 +6,6 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     release: kube-prometheus-stack
-    {{- include "smartgrid.labels" . | nindent 4 }}
 spec:
   groups:
 
