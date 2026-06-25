@@ -67,9 +67,9 @@ spec:
           config:
             global:
               smtp_smarthost: "smtp.gmail.com:587"
-              smtp_from: "fitnessofficialasad@gmail.com"
+              smtp_from: "asadchamp109@gmail.com"
               smtp_require_tls: true
-              smtp_auth_username: "fitnessofficialasad@gmail.com"
+              smtp_auth_username: "asadchamp109@gmail.com"
               # Password read from the mounted secret — never stored in Git.
               smtp_auth_password_file: /etc/alertmanager/secrets/alertmanager-smtp/smtp_password
 
@@ -98,10 +98,10 @@ spec:
               - name: "null"
               - name: "smartgrid-email"
                 email_configs:
-                  - to: "fitnessofficialasad@gmail.com"
+                  - to: "asadchamp109@gmail.com"
                     send_resolved: true
                     headers:
-                      Subject: '[SmartGrid {{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
+                      Subject: '[SmartGrid Alert] {{ .CommonLabels.alertname }} - {{ .Status | toUpper }}'
                     html: |
                       <!DOCTYPE html>
                       <html>
