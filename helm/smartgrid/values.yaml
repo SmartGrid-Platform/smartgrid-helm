@@ -49,6 +49,9 @@ ingress:
     alb.ingress.kubernetes.io/healthcheck-path: /health
     alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
     alb.ingress.kubernetes.io/success-codes: "200"
+    # IngressGroup: shares the same ALB with the Grafana ingress (monitoring namespace).
+    # Without this, a second ALB would be provisioned — extra cost.
+    alb.ingress.kubernetes.io/group.name: smartgrid
   hosts:
     - host: ""
       paths:

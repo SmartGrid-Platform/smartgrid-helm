@@ -155,12 +155,37 @@ spec:
             enabled: false
           grafana.ini:
             server:
-              root_url: "%(protocol)s://%(domain)s/"
+              # Grafana is served at /grafana on the same ALB as the SmartGrid APIs.
+              # serve_from_sub_path=true makes Grafana rewrite all asset URLs to /grafana/...
+              # Without this, the browser loads JS/CSS from / and gets a 404 from the ALB.
+              root_url: "%(protocol)s://%(domain)s/grafana"
+              serve_from_sub_path: true
             auth.anonymous:
               enabled: false
             # SMTP for Grafana alerts (separate from Alertmanager SMTP).
             smtp:
               enabled: false
+
+          # ALB Ingress — shares the same ALB as SmartGrid services via IngressGroup.
+          # Grafana is accessible at http://<alb-dns>/grafana — no extra ALB cost.
+          ingress:
+            enabled: true
+            ingressClassName: alb
+            annotations:
+              kubernetes.io/ingress.class: alb
+              alb.ingress.kubernetes.io/scheme: internet-facing
+              alb.ingress.kubernetes.io/target-type: ip
+              alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+              # Same group name as smartgrid-ingress → shares the existing ALB.
+              alb.ingress.kubernetes.io/group.name: smartgrid
+              # Grafana's health endpoint under the sub-path.
+              alb.ingress.kubernetes.io/healthcheck-path: /grafana/api/health
+              alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+              alb.ingress.kubernetes.io/success-codes: "200"
+            hosts:
+              - ""
+            path: /grafana
+            pathType: Prefix
 
         # ── node-exporter ─────────────────────────────────────────────────────────
         nodeExporter:
