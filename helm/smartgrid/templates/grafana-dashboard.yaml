@@ -1,0 +1,363 @@
+{{- if .Values.monitoring.enabled }}
+# Grafana auto-discovers ConfigMaps with label grafana_dashboard="1" in any namespace.
+# The kube-prometheus-stack sidecar scans for this label and imports the JSON.
+# Three dashboards: Application Overview, Infrastructure Health, API Performance.
+
+---
+# ── Dashboard 1: Application Overview ─────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: smartgrid-dashboard-overview
+  namespace: {{ .Release.Namespace }}
+  labels:
+    grafana_dashboard: "1"
+    {{- include "smartgrid.labels" . | nindent 4 }}
+data:
+  smartgrid-overview.json: |
+    {
+      "title": "SmartGrid — Application Overview",
+      "uid": "smartgrid-overview",
+      "tags": ["smartgrid", "overview"],
+      "timezone": "browser",
+      "schemaVersion": 36,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "panels": [
+        {
+          "id": 1, "type": "stat", "title": "Total Request Rate (req/s)",
+          "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+          "targets": [{
+            "expr": "sum(rate(http_requests_total{namespace=\"{{ .Release.Namespace }}\"}[5m]))",
+            "legendFormat": "req/s"
+          }],
+          "options": { "colorMode": "background", "graphMode": "area" },
+          "fieldConfig": { "defaults": { "color": { "mode": "thresholds" },
+            "thresholds": { "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 100},
+              {"color": "red", "value": 500}
+            ]}}}
+        },
+        {
+          "id": 2, "type": "stat", "title": "Overall Error Rate (%)",
+          "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+          "targets": [{
+            "expr": "sum(rate(http_errors_total{namespace=\"{{ .Release.Namespace }}\",status_code=~\"5..\"}[5m])) / sum(rate(http_requests_total{namespace=\"{{ .Release.Namespace }}\"}[5m])) * 100",
+            "legendFormat": "error %"
+          }],
+          "fieldConfig": { "defaults": { "unit": "percent",
+            "thresholds": { "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 5}
+            ]}}}
+        },
+        {
+          "id": 3, "type": "stat", "title": "P95 Response Time (s)",
+          "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+          "targets": [{
+            "expr": "histogram_quantile(0.95, sum by(le)(rate(http_request_duration_seconds_bucket{namespace=\"{{ .Release.Namespace }}\"}[5m])))",
+            "legendFormat": "P95"
+          }],
+          "fieldConfig": { "defaults": { "unit": "s",
+            "thresholds": { "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 2}
+            ]}}}
+        },
+        {
+          "id": 4, "type": "stat", "title": "Running Pods",
+          "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+          "targets": [{
+            "expr": "count(kube_pod_status_phase{namespace=\"{{ .Release.Namespace }}\",phase=\"Running\"})",
+            "legendFormat": "pods"
+          }],
+          "fieldConfig": { "defaults": {
+            "thresholds": { "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 6},
+              {"color": "green", "value": 12}
+            ]}}}
+        },
+        {
+          "id": 5, "type": "stat", "title": "Auth Login Failures (5m)",
+          "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+          "targets": [{
+            "expr": "increase(auth_login_failures_total[5m])",
+            "legendFormat": "failures"
+          }],
+          "fieldConfig": { "defaults": {
+            "thresholds": { "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 5},
+              {"color": "red", "value": 20}
+            ]}}}
+        },
+        {
+          "id": 6, "type": "stat", "title": "Bills Generated (1h)",
+          "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+          "targets": [{
+            "expr": "increase(bills_generated_total[1h])",
+            "legendFormat": "bills"
+          }],
+          "fieldConfig": { "defaults": { "color": { "fixedColor": "blue", "mode": "fixed" }}}
+        },
+        {
+          "id": 7, "type": "timeseries", "title": "Request Rate per Service (req/s)",
+          "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+          "targets": [{
+            "expr": "sum by(service)(rate(http_requests_total{namespace=\"{{ .Release.Namespace }}\"}[5m]))",
+            "legendFormat": "{{ "{{" }} service {{ "}}" }}"
+          }],
+          "fieldConfig": { "defaults": { "unit": "reqps" }}
+        },
+        {
+          "id": 8, "type": "timeseries", "title": "Error Rate per Service (%)",
+          "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+          "targets": [{
+            "expr": "sum by(service)(rate(http_errors_total{namespace=\"{{ .Release.Namespace }}\",status_code=~\"5..\"}[5m])) / sum by(service)(rate(http_requests_total{namespace=\"{{ .Release.Namespace }}\"}[5m])) * 100",
+            "legendFormat": "{{ "{{" }} service {{ "}}" }}"
+          }],
+          "fieldConfig": { "defaults": { "unit": "percent" }},
+          "options": { "thresholds": { "steps": [{"color":"green","value":null},{"color":"red","value":5}]}}
+        },
+        {
+          "id": 9, "type": "timeseries", "title": "Node.js Memory per Service (MB)",
+          "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+          "targets": [{
+            "expr": "process_resident_memory_bytes{namespace=\"{{ .Release.Namespace }}\"} / 1024 / 1024",
+            "legendFormat": "{{ "{{" }} job {{ "}}" }}"
+          }],
+          "fieldConfig": { "defaults": { "unit": "MB" }}
+        },
+        {
+          "id": 10, "type": "timeseries", "title": "AI Assistant — Bedrock Request Duration P95 (s)",
+          "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+          "targets": [{
+            "expr": "histogram_quantile(0.95, sum by(le)(rate(ai_request_duration_seconds_bucket[5m])))",
+            "legendFormat": "P95 Bedrock latency"
+          }],
+          "fieldConfig": { "defaults": { "unit": "s" }}
+        }
+      ]
+    }
+
+---
+# ── Dashboard 2: Infrastructure Health ────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: smartgrid-dashboard-infra
+  namespace: {{ .Release.Namespace }}
+  labels:
+    grafana_dashboard: "1"
+    {{- include "smartgrid.labels" . | nindent 4 }}
+data:
+  smartgrid-infra.json: |
+    {
+      "title": "SmartGrid — Infrastructure Health",
+      "uid": "smartgrid-infra",
+      "tags": ["smartgrid", "infrastructure"],
+      "timezone": "browser",
+      "schemaVersion": 36,
+      "refresh": "60s",
+      "time": { "from": "now-3h", "to": "now" },
+      "panels": [
+        {
+          "id": 1, "type": "gauge", "title": "Node CPU Usage (%)",
+          "gridPos": { "x": 0, "y": 0, "w": 6, "h": 6 },
+          "targets": [{
+            "expr": "avg(100 - (avg by(instance)(irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100))",
+            "legendFormat": "avg CPU"
+          }],
+          "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100,
+            "thresholds": { "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 60},
+              {"color": "red", "value": 80}
+            ]}}}
+        },
+        {
+          "id": 2, "type": "gauge", "title": "Node Memory Usage (%)",
+          "gridPos": { "x": 6, "y": 0, "w": 6, "h": 6 },
+          "targets": [{
+            "expr": "avg((1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100)",
+            "legendFormat": "avg memory"
+          }],
+          "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100,
+            "thresholds": { "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 70},
+              {"color": "red", "value": 85}
+            ]}}}
+        },
+        {
+          "id": 3, "type": "stat", "title": "Pod Restarts (15m)",
+          "gridPos": { "x": 12, "y": 0, "w": 6, "h": 6 },
+          "targets": [{
+            "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"{{ .Release.Namespace }}\"}[15m]))",
+            "legendFormat": "restarts"
+          }],
+          "fieldConfig": { "defaults": {
+            "thresholds": { "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 3}
+            ]}}}
+        },
+        {
+          "id": 4, "type": "stat", "title": "EKS Node Count",
+          "gridPos": { "x": 18, "y": 0, "w": 6, "h": 6 },
+          "targets": [{
+            "expr": "count(kube_node_status_condition{condition=\"Ready\",status=\"true\"})",
+            "legendFormat": "nodes"
+          }],
+          "fieldConfig": { "defaults": {
+            "thresholds": { "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 3},
+              {"color": "green", "value": 4}
+            ]}}}
+        },
+        {
+          "id": 5, "type": "timeseries", "title": "CPU per Node (%)",
+          "gridPos": { "x": 0, "y": 6, "w": 12, "h": 8 },
+          "targets": [{
+            "expr": "100 - (avg by(instance)(irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+            "legendFormat": "{{ "{{" }} instance {{ "}}" }}"
+          }],
+          "fieldConfig": { "defaults": { "unit": "percent" }}
+        },
+        {
+          "id": 6, "type": "timeseries", "title": "Memory per Node (%)",
+          "gridPos": { "x": 12, "y": 6, "w": 12, "h": 8 },
+          "targets": [{
+            "expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100",
+            "legendFormat": "{{ "{{" }} instance {{ "}}" }}"
+          }],
+          "fieldConfig": { "defaults": { "unit": "percent" }}
+        },
+        {
+          "id": 7, "type": "timeseries", "title": "Pod Memory vs Limit per Container (MB)",
+          "gridPos": { "x": 0, "y": 14, "w": 24, "h": 8 },
+          "targets": [
+            {
+              "expr": "container_memory_working_set_bytes{namespace=\"{{ .Release.Namespace }}\",container!=\"\"} / 1024 / 1024",
+              "legendFormat": "{{ "{{" }} pod {{ "}}" }}/{{ "{{" }} container {{ "}}" }} used"
+            },
+            {
+              "expr": "container_spec_memory_limit_bytes{namespace=\"{{ .Release.Namespace }}\",container!=\"\"} / 1024 / 1024",
+              "legendFormat": "{{ "{{" }} container {{ "}}" }} limit"
+            }
+          ],
+          "fieldConfig": { "defaults": { "unit": "MB" }}
+        }
+      ]
+    }
+
+---
+# ── Dashboard 3: API Performance ──────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: smartgrid-dashboard-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    grafana_dashboard: "1"
+    {{- include "smartgrid.labels" . | nindent 4 }}
+data:
+  smartgrid-api.json: |
+    {
+      "title": "SmartGrid — API Performance",
+      "uid": "smartgrid-api",
+      "tags": ["smartgrid", "api"],
+      "timezone": "browser",
+      "schemaVersion": 36,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "panels": [
+        {
+          "id": 1, "type": "timeseries", "title": "P50 / P95 / P99 Latency per Service (s)",
+          "gridPos": { "x": 0, "y": 0, "w": 24, "h": 8 },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.50, sum by(service,le)(rate(http_request_duration_seconds_bucket{namespace=\"{{ .Release.Namespace }}\"}[5m])))",
+              "legendFormat": "{{ "{{" }} service {{ "}}" }} P50"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum by(service,le)(rate(http_request_duration_seconds_bucket{namespace=\"{{ .Release.Namespace }}\"}[5m])))",
+              "legendFormat": "{{ "{{" }} service {{ "}}" }} P95"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum by(service,le)(rate(http_request_duration_seconds_bucket{namespace=\"{{ .Release.Namespace }}\"}[5m])))",
+              "legendFormat": "{{ "{{" }} service {{ "}}" }} P99"
+            }
+          ],
+          "fieldConfig": { "defaults": { "unit": "s" }}
+        },
+        {
+          "id": 2, "type": "timeseries", "title": "5xx Errors per Service",
+          "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+          "targets": [{
+            "expr": "sum by(service)(rate(http_errors_total{namespace=\"{{ .Release.Namespace }}\",status_code=~\"5..\"}[5m]))",
+            "legendFormat": "{{ "{{" }} service {{ "}}" }}"
+          }],
+          "fieldConfig": { "defaults": { "unit": "reqps", "color": { "fixedColor": "red", "mode": "fixed" }}}
+        },
+        {
+          "id": 3, "type": "timeseries", "title": "4xx Client Errors per Service",
+          "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+          "targets": [{
+            "expr": "sum by(service)(rate(http_errors_total{namespace=\"{{ .Release.Namespace }}\",status_code=~\"4..\"}[5m]))",
+            "legendFormat": "{{ "{{" }} service {{ "}}" }}"
+          }],
+          "fieldConfig": { "defaults": { "unit": "reqps", "color": { "fixedColor": "orange", "mode": "fixed" }}}
+        },
+        {
+          "id": 4, "type": "table", "title": "Top Routes by Request Count (5m)",
+          "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+          "targets": [{
+            "expr": "topk(10, sum by(service,route)(increase(http_requests_total{namespace=\"{{ .Release.Namespace }}\"}[5m])))",
+            "legendFormat": "{{ "{{" }} service {{ "}}" }} {{ "{{" }} route {{ "}}" }}",
+            "instant": true
+          }]
+        },
+        {
+          "id": 5, "type": "table", "title": "Slowest Routes P95 (5m)",
+          "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+          "targets": [{
+            "expr": "topk(10, histogram_quantile(0.95, sum by(service,route,le)(rate(http_request_duration_seconds_bucket{namespace=\"{{ .Release.Namespace }}\"}[5m]))))",
+            "legendFormat": "{{ "{{" }} service {{ "}}" }} {{ "{{" }} route {{ "}}" }}",
+            "instant": true
+          }],
+          "fieldConfig": { "defaults": { "unit": "s" }}
+        },
+        {
+          "id": 6, "type": "timeseries", "title": "Meter Readings Submitted/s",
+          "gridPos": { "x": 0, "y": 24, "w": 8, "h": 6 },
+          "targets": [{
+            "expr": "rate(meter_readings_submitted_total[5m])",
+            "legendFormat": "readings/s"
+          }]
+        },
+        {
+          "id": 7, "type": "timeseries", "title": "Bills Generated/min",
+          "gridPos": { "x": 8, "y": 24, "w": 8, "h": 6 },
+          "targets": [{
+            "expr": "rate(bills_generated_total[5m]) * 60",
+            "legendFormat": "bills/min"
+          }]
+        },
+        {
+          "id": 8, "type": "timeseries", "title": "AI Fallback to Nova Lite (cumulative)",
+          "gridPos": { "x": 16, "y": 24, "w": 8, "h": 6 },
+          "targets": [{
+            "expr": "increase(ai_fallback_total[1h])",
+            "legendFormat": "fallbacks/hour"
+          }]
+        }
+      ]
+    }
+{{- end }}

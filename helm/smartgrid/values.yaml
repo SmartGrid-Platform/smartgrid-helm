@@ -146,3 +146,12 @@ services:
       CONSUMER_SERVICE_URL: "http://consumer-service:3002"
       BILLING_SERVICE_URL: "http://billing-service:3004"
       METER_SERVICE_URL: "http://meter-service:3003"
+
+monitoring:
+  enabled: true
+  # How often Prometheus scrapes each /metrics endpoint.
+  # 30s balances freshness with cardinality — Prometheus default is 1m.
+  scrapeInterval: "30s"
+  # Must be less than scrapeInterval. 10s allows for slow pods without
+  # Prometheus marking the target as down prematurely.
+  scrapeTimeout: "10s"

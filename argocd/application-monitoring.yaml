@@ -1,0 +1,206 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # Monitoring stack is non-business-critical — sync manually after infra changes.
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: ">=61.0.0"
+    helm:
+      releaseName: kube-prometheus-stack
+      values: |
+        # ── Prometheus ────────────────────────────────────────────────────────────
+        prometheus:
+          prometheusSpec:
+            # Discover ServiceMonitors in all namespaces (production + monitoring).
+            # Without this, only same-namespace monitors are discovered.
+            serviceMonitorNamespaceSelector: {}
+            serviceMonitorSelector:
+              matchLabels:
+                release: kube-prometheus-stack
+            # Discover PrometheusRules across all namespaces.
+            ruleNamespaceSelector: {}
+            ruleSelector:
+              matchLabels:
+                release: kube-prometheus-stack
+            # Retain 15 days of metrics on the EKS SPOT nodes.
+            # SPOT interruptions are rare (t3.small have low interruption rate)
+            # and Prometheus WAL survives short interruptions via PVC.
+            retention: 15d
+            retentionSize: "8GB"
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: gp2
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 10Gi
+            # Keep resource footprint small for t3.small SPOT nodes (2 vCPU, 2GB).
+            resources:
+              requests:
+                cpu: 200m
+                memory: 512Mi
+              limits:
+                cpu: 500m
+                memory: 1Gi
+
+        # ── Alertmanager ──────────────────────────────────────────────────────────
+        alertmanager:
+          alertmanagerSpec:
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 100m
+                memory: 128Mi
+          config:
+            global:
+              # SMTP credentials are stored in AWS Secrets Manager under
+              # smartgrid-production/config (keys: SMTP_HOST, SMTP_USER, SMTP_PASS).
+              # The bootstrap job pre-creates the alertmanager-smtp K8s Secret
+              # from Secrets Manager before ArgoCD syncs this Application.
+              # Reference via secretKeyRef in the Alertmanager CR — not hardcoded here.
+              smtp_smarthost: "smtp.gmail.com:587"
+              smtp_from: "smartgrid-alerts@gmail.com"
+              smtp_require_tls: true
+              # smtp_auth_username and smtp_auth_password are mounted from the
+              # K8s Secret alertmanager-smtp (pre-created by bootstrap).
+              smtp_auth_username: ""
+              smtp_auth_password: ""
+
+            route:
+              receiver: "smartgrid-email"
+              group_by: ["alertname", "service", "team"]
+              # Wait 30s before sending to group related alerts that fire together.
+              group_wait: 30s
+              # Resend after 4h if still firing — avoids alert fatigue.
+              group_interval: 5m
+              repeat_interval: 4h
+              routes:
+                - match:
+                    severity: critical
+                  receiver: "smartgrid-email"
+                  # Critical alerts resend every 1h until resolved.
+                  repeat_interval: 1h
+                - match:
+                    severity: warning
+                  receiver: "smartgrid-email"
+                  repeat_interval: 4h
+
+            receivers:
+              - name: "smartgrid-email"
+                email_configs:
+                  - to: "fitnessofficialasad@gmail.com"
+                    send_resolved: true
+                    headers:
+                      Subject: "[SmartGrid] {{ "{{" }} .Status | toUpper {{ "}}" }} — {{ "{{" }} .CommonLabels.alertname {{ "}}" }}"
+                    body: |
+                      {{ "{{" }} range .Alerts {{ "}}" }}
+                      Alert: {{ "{{" }} .Labels.alertname {{ "}}" }}
+                      Severity: {{ "{{" }} .Labels.severity {{ "}}" }}
+                      Service: {{ "{{" }} .Labels.service {{ "}}" }}
+                      Summary: {{ "{{" }} .Annotations.summary {{ "}}" }}
+                      Description: {{ "{{" }} .Annotations.description {{ "}}" }}
+                      Fired at: {{ "{{" }} .StartsAt.Format "2006-01-02 15:04:05 UTC" {{ "}}" }}
+                      {{ "{{" }} if eq .Status "resolved" {{ "}}" }}Resolved at: {{ "{{" }} .EndsAt.Format "2006-01-02 15:04:05 UTC" {{ "}}" }}{{ "{{" }} end {{ "}}" }}
+                      ---
+                      {{ "{{" }} end {{ "}}" }}
+
+            inhibit_rules:
+              # If a pod is down (critical), suppress the downstream latency/error warnings
+              # for that same service — they are symptoms, not independent problems.
+              - source_match:
+                  alertname: SmartGridServiceDown
+                  severity: critical
+                target_match:
+                  severity: warning
+                equal: ["service"]
+
+        # ── Grafana ───────────────────────────────────────────────────────────────
+        grafana:
+          enabled: true
+          # Admin password is bootstrapped from Secrets Manager.
+          # Change this via argocd application override --set grafana.adminPassword=...
+          # or from Secrets Manager key GRAFANA_ADMIN_PASSWORD pre-created by bootstrap.
+          adminPassword: ""
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          sidecar:
+            dashboards:
+              # The sidecar scans all namespaces for ConfigMaps with label grafana_dashboard="1"
+              # and auto-imports them. Our smartgrid dashboard ConfigMaps use this label.
+              enabled: true
+              searchNamespace: ALL
+              label: grafana_dashboard
+              labelValue: "1"
+            datasources:
+              enabled: true
+          persistence:
+            enabled: false
+          grafana.ini:
+            server:
+              root_url: "%(protocol)s://%(domain)s/"
+            auth.anonymous:
+              enabled: false
+            # SMTP for Grafana alerts (separate from Alertmanager SMTP).
+            smtp:
+              enabled: false
+
+        # ── node-exporter ─────────────────────────────────────────────────────────
+        nodeExporter:
+          enabled: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+
+        # ── kube-state-metrics ────────────────────────────────────────────────────
+        kubeStateMetrics:
+          enabled: true
+
+        # ── Prometheus Operator ───────────────────────────────────────────────────
+        prometheusOperator:
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

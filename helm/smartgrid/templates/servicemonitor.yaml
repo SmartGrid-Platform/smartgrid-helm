@@ -1,0 +1,31 @@
+{{- if .Values.monitoring.enabled }}
+# ServiceMonitor tells Prometheus Operator which pods to scrape and how.
+# One ServiceMonitor covers all 6 SmartGrid services — each K8s Service already
+# has a unique port and the selector matches on the "app" label set by deployment.yaml.
+# Prometheus discovers this resource via its serviceMonitorNamespaceSelector (all namespaces).
+{{- range $name, $svc := .Values.services }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $name }}-monitor
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app: {{ $name }}
+    release: kube-prometheus-stack          # must match Prometheus operator's serviceMonitorSelector
+    {{- include "smartgrid.labels" $ | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ $name }}                      # matches the Service created by service.yaml
+  namespaceSelector:
+    matchNames:
+      - {{ $.Release.Namespace }}
+  endpoints:
+    - port: http                            # named port in the Service spec
+      path: /metrics                        # prom-client endpoint added to every service
+      interval: {{ $.Values.monitoring.scrapeInterval }}
+      scrapeTimeout: {{ $.Values.monitoring.scrapeTimeout }}
+      scheme: http
+{{- end }}
+{{- end }}

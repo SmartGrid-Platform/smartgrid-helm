@@ -1,0 +1,311 @@
+{{- if .Values.monitoring.enabled }}
+# PrometheusRule — alert definitions picked up by Prometheus Operator.
+# Every threshold below is deliberately chosen and documented.
+# See docs/monitoring.md for full threshold justification.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: smartgrid-alerts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    release: kube-prometheus-stack          # must match Prometheus ruleSelector label
+    {{- include "smartgrid.labels" . | nindent 4 }}
+spec:
+  groups:
+
+    # ── Group 1: Service Availability ─────────────────────────────────────────
+    - name: smartgrid.availability
+      interval: 30s
+      rules:
+
+        - alert: SmartGridServiceDown
+          # Fires when Prometheus cannot reach a pod's /metrics endpoint.
+          # up == 0 means the scrape target is completely unreachable.
+          # For: 1m — we wait 1 minute to avoid flapping during rolling deploys.
+          # Threshold: 0 (binary — either up or not). No percentages needed.
+          expr: up{namespace="{{ .Release.Namespace }}"} == 0
+          for: 1m
+          labels:
+            severity: critical
+            team: smartgrid
+          annotations:
+            summary: "Service {{ "{{" }} $labels.job {{ "}}" }} is DOWN"
+            description: >
+              {{ "{{" }} $labels.job {{ "}}" }} in namespace {{ .Release.Namespace }} has been
+              unreachable for over 1 minute. Check pod status with:
+              kubectl get pods -n {{ .Release.Namespace }} -l app={{ "{{" }} $labels.job {{ "}}" }}
+
+        - alert: SmartGridPodCrashLooping
+          # kube_pod_container_status_restarts_total increases by 1 on each pod restart.
+          # increase()[15m] > 3 means 3+ restarts in the last 15 minutes.
+          # Why 3 in 15m: A single restart is normal during rolling deploys.
+          # Three restarts in 15 minutes indicates a crash loop — the app is unable
+          # to stay running. This is the Kubernetes CrashLoopBackOff signal.
+          expr: |
+            increase(kube_pod_container_status_restarts_total{
+              namespace="{{ .Release.Namespace }}"
+            }[15m]) > 3
+          for: 0m
+          labels:
+            severity: critical
+            team: smartgrid
+          annotations:
+            summary: "Pod {{ "{{" }} $labels.pod {{ "}}" }} is crash looping"
+            description: >
+              Pod {{ "{{" }} $labels.pod {{ "}}" }} restarted {{ "{{" }} $value {{ "}}" }} times
+              in the last 15 minutes. This exceeds the 3-restart threshold indicating
+              a crash loop. Check logs: kubectl logs {{ "{{" }} $labels.pod {{ "}}" }}
+              -n {{ .Release.Namespace }} --previous
+
+        - alert: SmartGridDeploymentReplicasMismatch
+          # Fires if desired replicas != ready replicas for more than 10 minutes.
+          # Why 10m: short gaps occur normally during rolling updates (old pods
+          # terminate before new ones pass readiness). 10 minutes means the
+          # deployment has stalled — likely an image pull failure or OOMKill.
+          expr: |
+            kube_deployment_spec_replicas{namespace="{{ .Release.Namespace }}"}
+            !=
+            kube_deployment_status_replicas_ready{namespace="{{ .Release.Namespace }}"}
+          for: 10m
+          labels:
+            severity: warning
+            team: smartgrid
+          annotations:
+            summary: "Deployment {{ "{{" }} $labels.deployment {{ "}}" }} replica mismatch"
+            description: >
+              Deployment {{ "{{" }} $labels.deployment {{ "}}" }} has desired
+              {{ "{{" }} $value {{ "}}" }} replicas but not all are ready after 10 minutes.
+
+    # ── Group 2: HTTP Error Rates ──────────────────────────────────────────────
+    - name: smartgrid.errors
+      interval: 60s
+      rules:
+
+        - alert: SmartGridHighErrorRate
+          # 5xx errors / total requests > 5% over a 5-minute window.
+          # Why 5%: Standard SRE error budget practice. Google SRE Book uses
+          # 0.1%–1% for high-reliability services; 5% is a generous threshold
+          # appropriate for a SmartGrid utility app where some user errors are
+          # expected. Beyond 5% indicates server-side failures affecting users.
+          # Why 5m window: Averages out transient spikes while catching sustained issues.
+          expr: |
+            (
+              sum by (service) (rate(http_errors_total{
+                namespace="{{ .Release.Namespace }}",
+                status_code=~"5.."
+              }[5m]))
+              /
+              sum by (service) (rate(http_requests_total{
+                namespace="{{ .Release.Namespace }}"
+              }[5m]))
+            ) * 100 > 5
+          for: 5m
+          labels:
+            severity: warning
+            team: smartgrid
+          annotations:
+            summary: "High 5xx error rate on {{ "{{" }} $labels.service {{ "}}" }}"
+            description: >
+              {{ "{{" }} $labels.service {{ "}}" }} 5xx error rate is
+              {{ "{{" }} printf "%.1f" $value {{ "}}" }}% (threshold: 5%) over the last 5 minutes.
+              Check application logs for root cause.
+
+        - alert: SmartGridAuthFailureSpike
+          # More than 20 login failures per minute for 5 minutes.
+          # Why 20/min: Normal failed logins (typos) rarely exceed 2-3/min.
+          # 20/min sustained suggests a brute-force or credential stuffing attack.
+          # This directly protects consumer accounts.
+          expr: |
+            rate(auth_login_failures_total[5m]) * 60 > 20
+          for: 5m
+          labels:
+            severity: warning
+            team: smartgrid
+          annotations:
+            summary: "Authentication failure spike detected"
+            description: >
+              Auth service is recording {{ "{{" }} printf "%.0f" $value {{ "}}" }}
+              login failures/minute (threshold: 20/min). This may indicate a
+              brute-force or credential stuffing attack against consumer accounts.
+
+        - alert: SmartGridBillingFailures
+          # Any bill generation failure rate > 0 for 5 minutes is notable.
+          # Why 0: Bill generation should be 100% reliable — a failed bill means
+          # a consumer doesn't get their invoice on time. Even 1 sustained failure
+          # per minute needs immediate attention.
+          expr: |
+            rate(bill_generation_failures_total[5m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+            team: smartgrid
+          annotations:
+            summary: "Bill generation failures detected"
+            description: >
+              {{ "{{" }} printf "%.2f" $value {{ "}}" }} bill generation failures/second
+              in the last 5 minutes. Lambda invocation or S3 upload may be failing.
+              Check billing-service logs and Lambda function errors.
+
+    # ── Group 3: Latency ───────────────────────────────────────────────────────
+    - name: smartgrid.latency
+      interval: 60s
+      rules:
+
+        - alert: SmartGridHighP95Latency
+          # P95 latency > 2 seconds for 10 minutes.
+          # Why P95: Averages hide slow outliers. P95 means 95% of requests
+          # complete faster than this — it represents the experience of the
+          # slowest 5% of users which is typically where complaints come from.
+          # Why 2s: Google research (Speed Matters, 2009) shows users abandon
+          # pages that take longer than 2-3 seconds. For a utility billing app
+          # 2s P95 is a reasonable UX ceiling before users notice slowness.
+          # Why 10m: Latency spikes under burst traffic are normal. 10 minutes
+          # sustained means the system is genuinely overloaded, not just spiking.
+          expr: |
+            histogram_quantile(0.95,
+              sum by (service, le) (
+                rate(http_request_duration_seconds_bucket{
+                  namespace="{{ .Release.Namespace }}"
+                }[5m])
+              )
+            ) > 2
+          for: 10m
+          labels:
+            severity: warning
+            team: smartgrid
+          annotations:
+            summary: "High P95 latency on {{ "{{" }} $labels.service {{ "}}" }}"
+            description: >
+              P95 response time for {{ "{{" }} $labels.service {{ "}}" }} is
+              {{ "{{" }} printf "%.2f" $value {{ "}}" }}s (threshold: 2s) for the last 10 minutes.
+              Consider scaling HPA or investigating slow DB queries.
+
+        - alert: SmartGridAIResponseSlow
+          # AI assistant P95 latency > 30s for 5 minutes.
+          # Why 30s: Bedrock Nova Pro responses can take 10-20s for long conversations.
+          # The service has a 50s hard timeout. Alerting at 30s P95 gives headroom
+          # before users hit the 504 timeout. This is service-specific — AI latency
+          # tolerances are much higher than REST API latency tolerances.
+          expr: |
+            histogram_quantile(0.95,
+              sum by (le) (
+                rate(ai_request_duration_seconds_bucket[5m])
+              )
+            ) > 30
+          for: 5m
+          labels:
+            severity: warning
+            team: smartgrid
+          annotations:
+            summary: "AI assistant Bedrock responses are slow"
+            description: >
+              AI assistant P95 latency is {{ "{{" }} printf "%.1f" $value {{ "}}" }}s
+              (threshold: 30s). Bedrock may be throttling or overloaded.
+              Nova Lite fallback rate: check ai_fallback_total metric.
+
+    # ── Group 4: Resource Utilisation ─────────────────────────────────────────
+    - name: smartgrid.resources
+      interval: 60s
+      rules:
+
+        - alert: SmartGridHighCPU
+          # Node CPU usage > 80% averaged over 5 minutes.
+          # Why 80%: Industry-standard SRE threshold (AWS, Google, Netflix all use 70-80%).
+          # Below 80% leaves headroom to absorb traffic spikes without throttling.
+          # At 100% CPU, the Node.js event loop stalls causing cascading latency.
+          # Why 5m: CPU naturally spikes during GC and request bursts.
+          # A 5-minute sustained average above 80% signals genuine overload.
+          expr: |
+            100 - (
+              avg by (instance) (
+                irate(node_cpu_seconds_total{mode="idle"}[5m])
+              ) * 100
+            ) > 80
+          for: 5m
+          labels:
+            severity: warning
+            team: smartgrid
+          annotations:
+            summary: "High CPU on node {{ "{{" }} $labels.instance {{ "}}" }}"
+            description: >
+              Node {{ "{{" }} $labels.instance {{ "}}" }} CPU is
+              {{ "{{" }} printf "%.1f" $value {{ "}}" }}% (threshold: 80%) for 5 minutes.
+              Consider scaling the EKS ASG or optimising application CPU usage.
+
+        - alert: SmartGridHighMemory
+          # Node memory usage > 85% for 5 minutes.
+          # Why 85%: Linux uses free memory for filesystem page cache which shows
+          # as "used" — 15% headroom is enough for cache while preventing OOM kills.
+          # When pods exceed their memory limit (512Mi) they are OOMKilled immediately.
+          # A node at 85% means pods are close to their limits across the board.
+          # Why 5m: Memory usage is steady-state — a 5-minute sustained breach
+          # is a real problem, not a momentary spike.
+          expr: |
+            (
+              1 - (
+                node_memory_MemAvailable_bytes /
+                node_memory_MemTotal_bytes
+              )
+            ) * 100 > 85
+          for: 5m
+          labels:
+            severity: warning
+            team: smartgrid
+          annotations:
+            summary: "High memory on node {{ "{{" }} $labels.instance {{ "}}" }}"
+            description: >
+              Node {{ "{{" }} $labels.instance {{ "}}" }} memory is
+              {{ "{{" }} printf "%.1f" $value {{ "}}" }}% used (threshold: 85%) for 5 minutes.
+              Risk of OOMKill on pods. Check top consumers with kubectl top pods -n {{ .Release.Namespace }}.
+
+        - alert: SmartGridPodMemoryNearLimit
+          # Pod memory > 90% of its configured limit for 10 minutes.
+          # Why 90% of limit: Each pod is limited to 512Mi. At 90% (460Mi) the
+          # container is 50Mi away from being OOMKilled. This gives the ops team
+          # time to investigate before the kill happens.
+          expr: |
+            (
+              container_memory_working_set_bytes{
+                namespace="{{ .Release.Namespace }}",
+                container!=""
+              }
+              /
+              container_spec_memory_limit_bytes{
+                namespace="{{ .Release.Namespace }}",
+                container!=""
+              }
+            ) * 100 > 90
+          for: 10m
+          labels:
+            severity: warning
+            team: smartgrid
+          annotations:
+            summary: "Pod {{ "{{" }} $labels.pod {{ "}}" }} memory near limit"
+            description: >
+              Container {{ "{{" }} $labels.container {{ "}}" }} in pod {{ "{{" }} $labels.pod {{ "}}" }}
+              is using {{ "{{" }} printf "%.1f" $value {{ "}}" }}% of its memory limit (512Mi).
+              OOMKill imminent if usage continues to grow.
+
+    # ── Group 5: Notification Delivery ────────────────────────────────────────
+    - name: smartgrid.notifications
+      interval: 60s
+      rules:
+
+        - alert: SmartGridNotificationFailures
+          # Alert-service email failures > 0 for 10 minutes.
+          # Why 0: Every failed notification means a consumer missed a bill or
+          # low-balance alert. Utility billing has regulatory implications —
+          # missed notifications can lead to wrongful disconnections.
+          expr: |
+            rate(notifications_failed_total[5m]) > 0
+          for: 10m
+          labels:
+            severity: warning
+            team: smartgrid
+          annotations:
+            summary: "Email notification failures in alert-service"
+            description: >
+              Alert-service is failing to deliver email notifications at
+              {{ "{{" }} printf "%.3f" $value {{ "}}" }} failures/second.
+              Check SMTP credentials in Secrets Manager and alert-service logs.
+{{- end }}
