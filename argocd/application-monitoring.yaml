@@ -37,14 +37,10 @@ spec:
             # and Prometheus WAL survives short interruptions via PVC.
             retention: 15d
             retentionSize: "8GB"
+            # emptyDir: metrics lost on pod restart but no EBS dependency.
+            # Switch to a PVC once the EBS CSI driver addon is installed.
             storageSpec:
-              volumeClaimTemplate:
-                spec:
-                  storageClassName: gp2
-                  accessModes: ["ReadWriteOnce"]
-                  resources:
-                    requests:
-                      storage: 10Gi
+              emptyDir: {}
             # Keep resource footprint small for t3.small SPOT nodes (2 vCPU, 2GB).
             resources:
               requests:
