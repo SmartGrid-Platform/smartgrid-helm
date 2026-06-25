@@ -104,18 +104,18 @@ spec:
                   - to: "fitnessofficialasad@gmail.com"
                     send_resolved: true
                     headers:
-                      Subject: "[SmartGrid] {{ "{{" }} .Status | toUpper {{ "}}" }} — {{ "{{" }} .CommonLabels.alertname {{ "}}" }}"
+                      Subject: '[SmartGrid] {{ .Status | toUpper }} - {{ .CommonLabels.alertname }}'
                     body: |
-                      {{ "{{" }} range .Alerts {{ "}}" }}
-                      Alert: {{ "{{" }} .Labels.alertname {{ "}}" }}
-                      Severity: {{ "{{" }} .Labels.severity {{ "}}" }}
-                      Service: {{ "{{" }} .Labels.service {{ "}}" }}
-                      Summary: {{ "{{" }} .Annotations.summary {{ "}}" }}
-                      Description: {{ "{{" }} .Annotations.description {{ "}}" }}
-                      Fired at: {{ "{{" }} .StartsAt.Format "2006-01-02 15:04:05 UTC" {{ "}}" }}
-                      {{ "{{" }} if eq .Status "resolved" {{ "}}" }}Resolved at: {{ "{{" }} .EndsAt.Format "2006-01-02 15:04:05 UTC" {{ "}}" }}{{ "{{" }} end {{ "}}" }}
+                      {{ range .Alerts }}
+                      Alert: {{ .Labels.alertname }}
+                      Severity: {{ .Labels.severity }}
+                      Service: {{ .Labels.service }}
+                      Summary: {{ .Annotations.summary }}
+                      Description: {{ .Annotations.description }}
+                      Fired at: {{ .StartsAt }}
+                      {{ if eq .Status "resolved" }}Resolved at: {{ .EndsAt }}{{ end }}
                       ---
-                      {{ "{{" }} end {{ "}}" }}
+                      {{ end }}
 
             inhibit_rules:
               # If a pod is down (critical), suppress the downstream latency/error warnings
