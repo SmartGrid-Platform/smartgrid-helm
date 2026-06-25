@@ -172,9 +172,11 @@ spec:
               alb.ingress.kubernetes.io/scheme: internet-facing
               alb.ingress.kubernetes.io/target-type: ip
               alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
-              # Same group name as smartgrid-ingress → shares the existing ALB.
               alb.ingress.kubernetes.io/group.name: smartgrid
-              # Grafana's health endpoint under the sub-path.
+              # Must match the load-balancer-name on the SmartGrid ingress so both
+              # ingresses share the SAME ALB — without this the controller creates a
+              # second ALB for the group, doubling costs.
+              alb.ingress.kubernetes.io/load-balancer-name: smartgrid-default-eks-alb
               alb.ingress.kubernetes.io/healthcheck-path: /grafana/api/health
               alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
               alb.ingress.kubernetes.io/success-codes: "200"
