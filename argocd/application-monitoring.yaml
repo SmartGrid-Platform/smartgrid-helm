@@ -207,8 +207,12 @@ spec:
         kubeStateMetrics:
           enabled: true
 
-        # ── Prometheus Operator ───────────────────────────────────────────────────
+        # ── Admission Webhooks ────────────────────────────────────────────────────
+        # Disabled — the admission-create/patch jobs consume pod slots and the
+        # webhooks are not needed for CRD validation in a dev/project cluster.
         prometheusOperator:
+          admissionWebhooks:
+            enabled: false
           resources:
             requests:
               cpu: 50m
