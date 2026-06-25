@@ -126,6 +126,13 @@ spec:
         # ── Grafana ───────────────────────────────────────────────────────────────
         grafana:
           enabled: true
+          # Pin to 10.4.x — Grafana 11+ introduces the "app platform" API server
+          # (/apis/dashboard.grafana.app/) which times out without full K8s RBAC setup,
+          # blocking the liveness probe and causing a restart loop.
+          image:
+            repository: grafana/grafana
+            tag: "10.4.7"
+            pullPolicy: IfNotPresent
           # Admin password is bootstrapped from Secrets Manager.
           # Change this via argocd application override --set grafana.adminPassword=...
           # or from Secrets Manager key GRAFANA_ADMIN_PASSWORD pre-created by bootstrap.
