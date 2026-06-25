@@ -53,6 +53,10 @@ spec:
         # ── Alertmanager ──────────────────────────────────────────────────────────
         alertmanager:
           alertmanagerSpec:
+            # Mount the alertmanager-smtp secret so the config can read the
+            # password from a file instead of hardcoding it in values.
+            secrets:
+              - alertmanager-smtp
             resources:
               requests:
                 cpu: 50m
@@ -65,12 +69,9 @@ spec:
               smtp_smarthost: "smtp.gmail.com:587"
               smtp_from: "fitnessofficialasad@gmail.com"
               smtp_require_tls: true
-              # FILLED IN via kubectl secret — see application-monitoring.yaml comments.
-              # Run: kubectl create secret generic alertmanager-smtp -n monitoring
-              #        --from-literal=username=fitnessofficialasad@gmail.com
-              #        --from-literal=password=<gmail-app-password>
               smtp_auth_username: "fitnessofficialasad@gmail.com"
-              smtp_auth_password: ""
+              # Password read from the mounted secret — never stored in Git.
+              smtp_auth_password_file: /etc/alertmanager/secrets/alertmanager-smtp/smtp_password
 
             route:
               receiver: "smartgrid-email"
