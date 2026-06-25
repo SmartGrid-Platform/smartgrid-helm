@@ -62,37 +62,31 @@ spec:
                 memory: 128Mi
           config:
             global:
-              # SMTP credentials are stored in AWS Secrets Manager under
-              # smartgrid-production/config (keys: SMTP_HOST, SMTP_USER, SMTP_PASS).
-              # The bootstrap job pre-creates the alertmanager-smtp K8s Secret
-              # from Secrets Manager before ArgoCD syncs this Application.
-              # Reference via secretKeyRef in the Alertmanager CR — not hardcoded here.
               smtp_smarthost: "smtp.gmail.com:587"
-              smtp_from: "smartgrid-alerts@gmail.com"
+              smtp_from: "fitnessofficialasad@gmail.com"
               smtp_require_tls: true
-              # smtp_auth_username and smtp_auth_password are mounted from the
-              # K8s Secret alertmanager-smtp (pre-created by bootstrap).
-              smtp_auth_username: ""
+              # FILLED IN via kubectl secret — see application-monitoring.yaml comments.
+              # Run: kubectl create secret generic alertmanager-smtp -n monitoring
+              #        --from-literal=username=fitnessofficialasad@gmail.com
+              #        --from-literal=password=<gmail-app-password>
+              smtp_auth_username: "fitnessofficialasad@gmail.com"
               smtp_auth_password: ""
 
             route:
               receiver: "smartgrid-email"
-              group_by: ["alertname", "service", "team"]
-              # Wait 30s before sending to group related alerts that fire together.
-              group_wait: 30s
-              # Resend after 4h if still firing — avoids alert fatigue.
-              group_interval: 5m
-              repeat_interval: 4h
+              group_by: ["alertname", "severity"]
+              group_wait: 10s
+              group_interval: 1m
+              repeat_interval: 30m
               routes:
                 - match:
                     severity: critical
                   receiver: "smartgrid-email"
-                  # Critical alerts resend every 1h until resolved.
-                  repeat_interval: 1h
+                  repeat_interval: 15m
                 - match:
                     severity: warning
                   receiver: "smartgrid-email"
-                  repeat_interval: 4h
+                  repeat_interval: 30m
 
             receivers:
               - name: "smartgrid-email"
@@ -100,28 +94,40 @@ spec:
                   - to: "fitnessofficialasad@gmail.com"
                     send_resolved: true
                     headers:
-                      Subject: '[SmartGrid] {{ .Status | toUpper }} - {{ .CommonLabels.alertname }}'
-                    body: |
-                      {{ range .Alerts }}
-                      Alert: {{ .Labels.alertname }}
-                      Severity: {{ .Labels.severity }}
-                      Service: {{ .Labels.service }}
-                      Summary: {{ .Annotations.summary }}
-                      Description: {{ .Annotations.description }}
-                      Fired at: {{ .StartsAt }}
-                      {{ if eq .Status "resolved" }}Resolved at: {{ .EndsAt }}{{ end }}
-                      ---
-                      {{ end }}
+                      Subject: '[SmartGrid {{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
+                    html: |
+                      <!DOCTYPE html>
+                      <html>
+                      <body style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:20px">
+                        <div style="background:{{ if eq .Status "firing" }}#d32f2f{{ else }}#388e3c{{ end }};color:white;padding:15px;border-radius:8px 8px 0 0">
+                          <h2 style="margin:0">SmartGrid Platform Alert</h2>
+                          <p style="margin:5px 0 0 0;font-size:14px">Status: <strong>{{ .Status | toUpper }}</strong> &nbsp;|&nbsp; {{ len .Alerts }} alert(s)</p>
+                        </div>
+                        <div style="border:1px solid #ddd;border-top:none;padding:15px;border-radius:0 0 8px 8px">
+                          {{ range .Alerts }}
+                          <div style="border-left:4px solid {{ if eq .Labels.severity "critical" }}#d32f2f{{ else }}#f57c00{{ end }};padding:10px;margin:10px 0;background:#fafafa">
+                            <p style="margin:0 0 8px 0;font-size:16px;font-weight:bold">{{ .Annotations.summary }}</p>
+                            <pre style="background:#f0f0f0;padding:10px;border-radius:4px;font-size:12px;white-space:pre-wrap">{{ .Annotations.description }}</pre>
+                            <p style="margin:8px 0 0 0;font-size:12px;color:#666">
+                              Severity: <strong>{{ .Labels.severity | toUpper }}</strong> &nbsp;|&nbsp;
+                              Fired: {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}
+                              {{ if eq .Status "resolved" }}&nbsp;|&nbsp; Resolved: {{ .EndsAt.Format "2006-01-02 15:04:05 UTC" }}{{ end }}
+                            </p>
+                          </div>
+                          {{ end }}
+                          <hr style="border:none;border-top:1px solid #eee">
+                          <p style="font-size:11px;color:#999;margin:10px 0 0 0">SmartGrid Platform — EKS ap-south-1 &nbsp;|&nbsp; Cluster: smartgrid-default</p>
+                        </div>
+                      </body>
+                      </html>
 
             inhibit_rules:
-              # If a pod is down (critical), suppress the downstream latency/error warnings
-              # for that same service — they are symptoms, not independent problems.
               - source_match:
                   alertname: SmartGridServiceDown
                   severity: critical
                 target_match:
                   severity: warning
-                equal: ["service"]
+                equal: ["alertname"]
 
         # ── Grafana ───────────────────────────────────────────────────────────────
         grafana:
